@@ -52,6 +52,15 @@ def test_flux_fused_ln_modulate_is_bit_exact(shape, chunks):
     assert flux._FLUX_LN_MOD.verified
 
 
+def test_flux_fused_ln_modulate_is_off_without_inline_ptx(monkeypatch):
+    # ROCm cannot compile the kernel's inline PTX and LLVM kills the process
+    # rather than raising, so the site has to bail out at the guard -- before
+    # both the verified-signature shortcut and its own exception fallback.
+    monkeypatch.setattr(torch.version, "hip", "0.0.0")
+    norm, x, shift, scale = _make_site_inputs((1, 4096, 3072), 6, seed=0)
+    assert _flux_fused_ln_modulate(norm, x, scale, shift) is None
+
+
 def test_flux_norm_modulate_bitexact_supersedes_high_fold():
     # With the quality="high" affine fold mounted, the bit-exact kernel
     # still takes priority, so the site output stays lossless.

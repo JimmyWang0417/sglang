@@ -7,11 +7,13 @@ import torch
 from torch import nn
 
 from sglang.kernels.ops.diffusion.ltx2_rmsnorm_modulate import (
+    can_fuse_ltx2_rms_norm_modulate,
     fused_ltx2_rms_norm_modulate,
     mark_ltx2_rms_norm_modulate_site,
     mount_ltx2_rms_norm_modulate,
     unmount_ltx2_rms_norm_modulate,
 )
+from sglang.kernels.ops.diffusion.triton.numerics import ptx_inline_asm_supported
 from sglang.multimodal_gen.runtime.layers.layernorm import RMSNormNoWeight
 from sglang.multimodal_gen.runtime.models.dits.ltx_2 import _ltx2_rms_norm_modulate
 from sglang.test.ci.ci_register import register_amd_ci, register_cuda_ci
@@ -50,6 +52,20 @@ def test_lossless_default_is_bitexact(hidden):
     assert torch.equal(out, _eager(rms, x, scale, shift, 1e-6))
 
 
+@pytest.mark.parametrize("hidden", [4096, 2048])
+def test_guard_follows_ptx_support(hidden):
+    # Shapes the kernel does cover, so the only thing left to decide is
+    # whether the platform can compile its NVIDIA PTX numerics at all.
+    _, x, scale, shift = _inputs(hidden)
+    assert (
+        can_fuse_ltx2_rms_norm_modulate(x, scale, shift) is ptx_inline_asm_supported()
+    )
+
+
+@pytest.mark.skipif(
+    not ptx_inline_asm_supported(),
+    reason="the fused kernel's inline PTX cannot be compiled on ROCm",
+)
 @pytest.mark.parametrize("hidden", [4096, 2048])
 def test_mounted_high_uses_fused_kernel(hidden):
     block = nn.Module()

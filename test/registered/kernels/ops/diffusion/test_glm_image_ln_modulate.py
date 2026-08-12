@@ -4,6 +4,10 @@ import pytest
 import torch
 
 import sglang.multimodal_gen.runtime.models.dits.glm_image as glm_image
+from sglang.kernels.ops.diffusion.triton.layernorm_modulate import (
+    can_use_fused_layernorm_modulate,
+    can_use_fused_qk_head_layernorm,
+)
 from sglang.multimodal_gen.runtime.models.dits.glm_image import (
     _eager_ln_modulate,
     _glm_ln_modulate,
@@ -47,6 +51,22 @@ def test_fused_qk_head_layernorm_is_bit_exact(shape):
     assert torch.equal(k_out, norm_k(k).to(k.dtype))
     assert glm_image._GLM_QK_LN.verified
     assert not glm_image._GLM_QK_LN.disabled
+
+
+def test_guards_reject_when_inline_ptx_is_unavailable(monkeypatch):
+    # Both kernels reach the same NVIDIA PTX primitives, which no AMDGPU
+    # backend can compile; LLVM aborts the process instead of raising, so the
+    # guards must say no before anything is launched.
+    torch.manual_seed(2)
+    x = (torch.randn(1, 256, 4096, device="cuda") * 8).bfloat16()
+    scale = torch.randn(1, 4096, device="cuda").bfloat16()
+    q = (torch.randn(1, 256, 32, 128, device="cuda") * 5).bfloat16()
+    assert can_use_fused_layernorm_modulate(x, scale, scale)
+    assert can_use_fused_qk_head_layernorm(q, q)
+
+    monkeypatch.setattr(torch.version, "hip", "0.0.0")
+    assert not can_use_fused_layernorm_modulate(x, scale, scale)
+    assert not can_use_fused_qk_head_layernorm(q, q)
 
 
 if __name__ == "__main__":

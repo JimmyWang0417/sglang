@@ -1,10 +1,24 @@
 # SPDX-License-Identifier: Apache-2.0
 """Numerical primitives shared by bit-exact diffusion Triton kernels."""
 
+import torch
 import triton  # type: ignore
 import triton.language as tl  # type: ignore
 
 _FLT_MIN = tl.constexpr(1.1754943508222875e-38)
+
+
+def ptx_inline_asm_supported() -> bool:
+    """True where the inline asm below can be compiled at all.
+
+    These primitives are NVIDIA PTX asking for the float register class
+    (``"=f"``), which the AMDGPU backend cannot allocate. LLVM reports that
+    as a fatal error (``couldn't allocate output register for constraint
+    'f'``) and tears the process down instead of raising, so a ``try``
+    around the launch never gets to run: every caller must consult this
+    before the first compile of a kernel that reaches this module.
+    """
+    return torch.version.hip is None
 
 
 @triton.jit
@@ -67,6 +81,7 @@ __all__ = [
     "cuda_rsqrtf",
     "div_rn_f32",
     "mul_rn_f32",
+    "ptx_inline_asm_supported",
     "round_bf16_to_fp32",
     "rsqrt_approx_f32",
 ]

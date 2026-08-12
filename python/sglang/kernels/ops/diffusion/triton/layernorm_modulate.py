@@ -38,6 +38,10 @@ reproduced faithfully.
 Bit-exactness holds only for the dispatch above, so callers must verify
 ``torch.equal`` against the live eager chain once at runtime and fall back
 on mismatch (see ``glm_image.py``).
+
+Reproducing those numerics needs NVIDIA inline PTX, which no AMDGPU
+backend can compile, so both ``can_use_*`` guards reject ROCm outright
+(see ``numerics.ptx_inline_asm_supported``).
 """
 
 from __future__ import annotations
@@ -49,6 +53,7 @@ import triton.language as tl  # type: ignore
 from sglang.kernels.ops.diffusion.triton.numerics import (
     cuda_rsqrtf,
     div_rn_f32,
+    ptx_inline_asm_supported,
     round_bf16_to_fp32,
 )
 from sglang.srt.utils.custom_op import register_custom_op
@@ -352,7 +357,8 @@ def can_use_fused_layernorm_modulate(
     x: torch.Tensor, scale: torch.Tensor, shift: torch.Tensor
 ) -> bool:
     if not (
-        _is_bf16_cuda(x)
+        ptx_inline_asm_supported()
+        and _is_bf16_cuda(x)
         and x.dim() == 3
         and x.numel() > 0
         and x.is_contiguous()
@@ -423,7 +429,8 @@ fused_layernorm_modulate = register_custom_op(
 def can_use_fused_qk_head_layernorm(q: torch.Tensor, k: torch.Tensor) -> bool:
     head_dim = q.shape[-1] if q.dim() == 4 else 0
     return (
-        _is_bf16_cuda(q)
+        ptx_inline_asm_supported()
+        and _is_bf16_cuda(q)
         and _is_bf16_cuda(k)
         and q.device == k.device
         and q.dim() == 4

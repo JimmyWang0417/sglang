@@ -45,6 +45,10 @@ it into an FMA.  Verified ``torch.equal`` against the live eager chain on
 (1,4216,4096)/(1,4096,4096)/(2,1140,4096)/(1,128,2048) bf16; callers should
 still verify once at runtime and fall back if the platform's rmsnorm dispatch
 ever changes (see ``ernie_image.py``).
+
+The inline PTX makes this an NVIDIA-only fusion: no AMDGPU backend can
+compile it, so ``can_use_fused_rmsnorm_scale_shift`` rejects ROCm outright
+(see ``numerics.ptx_inline_asm_supported``).
 """
 
 from __future__ import annotations
@@ -57,6 +61,7 @@ import triton.language as tl  # type: ignore
 
 from sglang.kernels.ops.diffusion.triton.numerics import (
     mul_rn_f32,
+    ptx_inline_asm_supported,
     round_bf16_to_fp32,
     rsqrt_approx_f32,
 )
@@ -171,7 +176,8 @@ def can_use_fused_rmsnorm_scale_shift(
     shift: torch.Tensor,
 ) -> bool:
     return (
-        x.dtype is torch.bfloat16
+        ptx_inline_asm_supported()
+        and x.dtype is torch.bfloat16
         and x.is_cuda
         and x.dim() == 3
         and x.is_contiguous()
