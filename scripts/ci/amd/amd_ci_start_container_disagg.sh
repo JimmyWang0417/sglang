@@ -213,7 +213,13 @@ find_latest_image() {
 }
 
 # Pull and run the latest image
-IMAGE=$(find_latest_image "${GPU_ARCH}")
+# TEST-ONLY (branch bingxche/pr32754-fullflow): see amd_ci_start_container.sh.
+if [[ -n "${TEST_IMAGE_REPO:-}" ]]; then
+  IMAGE="${TEST_IMAGE_REPO}:${TEST_IMAGE_VERSION}-${ROCM_VERSION}-${GPU_ARCH}-${TEST_IMAGE_DATE}"
+  echo "[pr32754-fullflow] Pinning image to ${IMAGE}"
+else
+  IMAGE=$(find_latest_image "${GPU_ARCH}")
+fi
 # Try the local docker registry first (avoids Docker Hub rate limits and is
 # faster on the LAN); if that fails for any reason, fall back to the
 # public registry with exponential-backoff retries. Capture stderr so the
