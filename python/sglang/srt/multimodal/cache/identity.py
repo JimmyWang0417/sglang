@@ -304,9 +304,15 @@ def build_processor_fingerprint(
     hf_config: Any,
     server_args: Any,
     *,
+    mm_process_config: Optional[Mapping[str, Any]] = None,
     extra: Optional[Mapping[str, Any]] = None,
 ) -> str:
-    """Fingerprint preprocessing choices that can change processor output."""
+    """Fingerprint preprocessing choices that can change processor output.
+
+    ``mm_process_config`` is passed in rather than read off ``server_args``:
+    the fingerprint has to reflect the *effective* preprocessing config, and
+    the caller is the one holding it.
+    """
     processor_payload = (
         processor.preprocess_fingerprint_payload()
         if hasattr(processor, "preprocess_fingerprint_payload")
@@ -322,7 +328,7 @@ def build_processor_fingerprint(
         "disable_fast_image_processor": getattr(
             server_args, "disable_fast_image_processor", False
         ),
-        "mm_process_config": getattr(server_args, "mm_process_config", None) or {},
+        "mm_process_config": mm_process_config or {},
         "processor": processor_payload,
         "extra": extra or {},
     }

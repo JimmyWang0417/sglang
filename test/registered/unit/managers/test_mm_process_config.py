@@ -10,6 +10,7 @@ from sglang.srt.environ import envs
 from sglang.srt.server_args import ServerArgs
 from sglang.test.ci.ci_register import register_cpu_ci
 from sglang.test.test_utils import CustomTestCase
+from sglang.srt.runtime_context import get_context
 
 register_cpu_ci(est_time=9, suite="base-a-test-cpu")
 
@@ -80,14 +81,20 @@ class TestBaseProcessorConfigExtraction(CustomTestCase):
             BaseMultimodalProcessor,
         )
 
+        # The multimodal config comes from the bags.
+        override = get_context().override_server_args(
+            mm_process_config=mm_process_config,
+            allowed_media_domains=[],
+        )
+        override.install()
+        self.addCleanup(override.restore)
+
         server_args = MagicMock()
-        server_args.mm_process_config = mm_process_config
         server_args.mm_processor_worker_num = mm_processor_worker_num
         server_args.mm_io_worker_num = mm_io_worker_num
         server_args.mm_preprocess_cache_size_mb = None
         server_args.tokenizer_worker_num = 1
         server_args.trust_mm_content_hashes = False
-        server_args.allowed_media_domains = []
         server_args.media_url_max_file_size_mb = 64
 
         hf_config = MagicMock()
@@ -168,8 +175,14 @@ class TestBaseProcessorConfigExtraction(CustomTestCase):
 
 
 class TestMultimodalFeatureTransportRuntime(CustomTestCase):
-    @staticmethod
-    def _server_args(mm_feature_transport):
+    def _server_args(self, mm_feature_transport):
+        override = get_context().override_server_args(
+            mm_feature_transport=mm_feature_transport,
+            mm_process_config={},
+            allowed_media_domains=[],
+        )
+        override.install()
+        self.addCleanup(override.restore)
         return SimpleNamespace(
             mm_feature_transport=mm_feature_transport,
             disable_fast_image_processor=False,
@@ -768,16 +781,21 @@ class TestDoubleBosGuard(CustomTestCase):
             BaseMultimodalProcessor,
         )
 
+        override = get_context().override_server_args(
+            mm_process_config={},
+            mm_feature_transport="cpu",
+            allowed_media_domains=[],
+        )
+        override.install()
+        self.addCleanup(override.restore)
+
         server_args = MagicMock()
-        server_args.mm_process_config = {}
         server_args.mm_processor_worker_num = 0
         server_args.mm_io_worker_num = 0
-        server_args.mm_feature_transport = "cpu"
         server_args.disable_fast_image_processor = True
         server_args.mm_preprocess_cache_size_mb = None
         server_args.tokenizer_worker_num = 1
         server_args.trust_mm_content_hashes = False
-        server_args.allowed_media_domains = []
         server_args.media_url_max_file_size_mb = 64
 
         mock_hf_processor = MagicMock()
