@@ -3922,7 +3922,7 @@ def _unregister_encoder_url_from_bootstrap(server_args: ServerArgs):
 
 def launch_server(server_args: ServerArgs):
     configure_logger(server_args, prefix=" encode_server")
-    if server_args.dp_size > 1:
+    if get_parallel().dp_size > 1:
         _launch_server_dp(server_args)
         return
 
@@ -3983,12 +3983,12 @@ def launch_server(server_args: ServerArgs):
 def _launch_server_dp(server_args: ServerArgs):
     global dp_dispatcher
 
-    if server_args.dp_size <= 1 or server_args.tp_size != 1:
+    if get_parallel().dp_size <= 1 or server_args.tp_size != 1:
         raise ValueError(
             "Encoder DP mode requires --dp-size > 1 and --tp-size 1; got "
-            f"dp_size={server_args.dp_size}, tp_size={server_args.tp_size}."
+            f"dp_size={get_parallel().dp_size}, tp_size={server_args.tp_size}."
         )
-    dp_size = server_args.dp_size
+    dp_size = get_parallel().dp_size
     logger.info(f"Launching encoder in DP mode: dp_size={dp_size}")
 
     # DP mode: workers (subprocesses) write metrics to the shared multiproc dir;

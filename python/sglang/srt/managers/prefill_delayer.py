@@ -9,6 +9,7 @@ import torch
 
 from sglang.srt.environ import envs
 from sglang.srt.utils import get_bool_env_var
+from sglang.srt.runtime_context import get_parallel
 
 if TYPE_CHECKING:
     from sglang.srt.observability.metrics_collector import SchedulerMetricsCollector
@@ -103,7 +104,7 @@ class PrefillDelayer:
             f"queue_trigger_enabled={self._queue_trigger_enabled}"
         )
         self.dp_size = dp_size
-        self.enable_dp_attention = server_args.enable_dp_attention
+        self.enable_dp_attention = get_parallel().enable_dp_attention
         dp_size_dim = dp_size if self.enable_dp_attention else 1
 
         # Mirror scheduler_dp_attn_mixin's NCCL all-gather path: when the

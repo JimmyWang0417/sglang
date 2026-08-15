@@ -18,6 +18,7 @@ from sglang.srt.managers.load_snapshot import (
     should_use_zmq,
     zmq_reader_owner,
 )
+from sglang.srt.runtime_context import get_context
 from sglang.test.ci.ci_register import register_cpu_ci
 from sglang.test.test_utils import CustomTestCase, maybe_stub_sgl_kernel
 
@@ -228,23 +229,17 @@ class TestZmqRoundTrip(CustomTestCase):
 
 
 class TestFactoryFunctions(CustomTestCase):
+    def _publish(self, **fields):
+        override = get_context().override_server_args(**fields)
+        override.install()
+        self.addCleanup(override.restore)
+
     def test_shm_mode(self):
-        server_args = SimpleNamespace(
-            enable_dp_attention=False,
-            nnodes=1,
-            dp_size=1,
-            load_balance_method="round_robin",
-            node_rank=0,
-            tokenizer_worker_num=1,
-        )
+        self._publish(enable_dp_attention=False, nnodes=1, dp_size=1)
         port_args = SimpleNamespace(instance_id="test_shm_factory")
-        writer = create_load_snapshot_writer(
-            server_args, port_args, dp_size=1, dp_rank=0
-        )
+        writer = create_load_snapshot_writer(port_args, dp_size=1, dp_rank=0)
         self.assertIsInstance(writer, ShmLoadSnapshotWriter)
-        reader = create_load_snapshot_reader(
-            server_args, port_args, caller="TokenizerManager"
-        )
+        reader = create_load_snapshot_reader(port_args, caller="TokenizerManager")
         self.assertIsInstance(reader, ShmLoadSnapshotReader)
         reader.close()
         writer.close()
@@ -255,24 +250,13 @@ class TestFactoryFunctions(CustomTestCase):
             os.unlink(path)
 
     def test_zmq_mode_via_env(self):
-        server_args = SimpleNamespace(
-            enable_dp_attention=False,
-            nnodes=1,
-            dp_size=1,
-            load_balance_method="round_robin",
-            node_rank=0,
-            tokenizer_worker_num=1,
-        )
+        self._publish(enable_dp_attention=False, nnodes=1, dp_size=1)
         port_args = SimpleNamespace(instance_id="test_zmq_factory")
         os.environ["SGLANG_LOAD_SNAPSHOT_USE_ZMQ"] = "1"
         try:
-            writer = create_load_snapshot_writer(
-                server_args, port_args, dp_size=1, dp_rank=0
-            )
+            writer = create_load_snapshot_writer(port_args, dp_size=1, dp_rank=0)
             self.assertIsInstance(writer, ZmqLoadSnapshotWriter)
-            reader = create_load_snapshot_reader(
-                server_args, port_args, caller="TokenizerManager"
-            )
+            reader = create_load_snapshot_reader(port_args, caller="TokenizerManager")
             self.assertIsInstance(reader, ZmqShmLoadSnapshotReader)
             reader.close()
             writer.close()
@@ -280,8 +264,8 @@ class TestFactoryFunctions(CustomTestCase):
             del os.environ["SGLANG_LOAD_SNAPSHOT_USE_ZMQ"]
 
     def test_should_use_zmq_multinode_dp_attention(self):
-        args = SimpleNamespace(enable_dp_attention=True, nnodes=2)
-        self.assertTrue(should_use_zmq(args))
+        self._publish(enable_dp_attention=True, nnodes=2, dp_size=2)
+        self.assertTrue(should_use_zmq())
 
 
 class TestZmqReaderOwner(CustomTestCase):
@@ -289,9 +273,9 @@ class TestZmqReaderOwner(CustomTestCase):
 
     CALLERS = ("TokenizerManager", "MultiTokenizerRouter", "DataParallelController")
 
-    @staticmethod
-    def _args(**overrides):
-        base = dict(
+    def _owners(self, **overrides):
+        """Publish a config and return the callers that claim the socket."""
+        fields = dict(
             enable_dp_attention=True,
             nnodes=2,
             node_rank=0,
@@ -299,54 +283,61 @@ class TestZmqReaderOwner(CustomTestCase):
             load_balance_method="round_robin",
             tokenizer_worker_num=1,
         )
-        base.update(overrides)
-        return SimpleNamespace(**base)
-
-    def _owners(self, args):
-        return {c for c in self.CALLERS if zmq_reader_owner(args, c)}
+        fields.update(overrides)
+        override = get_context().override_server_args(**fields)
+        override.install()
+        try:
+            return {c for c in self.CALLERS if zmq_reader_owner(c)}
+        finally:
+            override.restore()
 
     def test_zmq_disabled_no_owner(self):
-        args = self._args(enable_dp_attention=False, nnodes=1)
-        self.assertEqual(self._owners(args), set())
+        self.assertEqual(self._owners(enable_dp_attention=False, nnodes=1), set())
 
     def test_non_zero_node_rank_no_owner(self):
-        args = self._args(node_rank=1, dp_size=4, tokenizer_worker_num=8)
-        self.assertEqual(self._owners(args), set())
+        self.assertEqual(
+            self._owners(node_rank=1, dp_size=4, tokenizer_worker_num=8), set()
+        )
 
     def test_tokenizer_manager_owns_when_dp1(self):
-        self.assertEqual(self._owners(self._args(dp_size=1)), {"TokenizerManager"})
+        self.assertEqual(self._owners(dp_size=1), {"TokenizerManager"})
 
     def test_multi_tokenizer_router_owns_in_multi_tokenizer_dp1(self):
-        args = self._args(dp_size=1, tokenizer_worker_num=8)
-        self.assertEqual(self._owners(args), {"MultiTokenizerRouter"})
+        self.assertEqual(
+            self._owners(dp_size=1, tokenizer_worker_num=8), {"MultiTokenizerRouter"}
+        )
 
     def test_multi_tokenizer_router_owns_in_multi_tokenizer_round_robin(self):
-        args = self._args(dp_size=4, tokenizer_worker_num=8)
-        self.assertEqual(self._owners(args), {"MultiTokenizerRouter"})
+        self.assertEqual(
+            self._owners(dp_size=4, tokenizer_worker_num=8), {"MultiTokenizerRouter"}
+        )
 
     def test_data_parallel_controller_owns_load_aware(self):
         for method in ("total_tokens", "total_requests"):
-            args = self._args(
-                dp_size=4, tokenizer_worker_num=8, load_balance_method=method
+            self.assertEqual(
+                self._owners(
+                    dp_size=4, tokenizer_worker_num=8, load_balance_method=method
+                ),
+                {"DataParallelController"},
             )
-            self.assertEqual(self._owners(args), {"DataParallelController"})
 
     def test_tokenizer_manager_owns_dp4_round_robin(self):
-        args = self._args(dp_size=4, tokenizer_worker_num=1)
-        self.assertEqual(self._owners(args), {"TokenizerManager"})
+        self.assertEqual(
+            self._owners(dp_size=4, tokenizer_worker_num=1), {"TokenizerManager"}
+        )
 
     def test_at_most_one_owner_across_configs(self):
         for dp_size in (1, 4):
             for tw in (1, 8):
                 for method in ("round_robin", "total_tokens", "total_requests"):
                     for node_rank in (0, 1):
-                        args = self._args(
+                        owners = self._owners(
                             dp_size=dp_size,
                             tokenizer_worker_num=tw,
                             load_balance_method=method,
                             node_rank=node_rank,
                         )
-                        self.assertLessEqual(len(self._owners(args)), 1, args)
+                        self.assertLessEqual(len(owners), 1, owners)
 
 
 class TestZmqAddr(CustomTestCase):

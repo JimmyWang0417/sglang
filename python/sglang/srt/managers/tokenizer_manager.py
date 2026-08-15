@@ -151,6 +151,7 @@ from sglang.srt.utils.network import get_zmq_socket
 from sglang.srt.utils.request_logger import RequestLogger
 from sglang.srt.utils.watchdog import Watchdog
 from sglang.utils import TypeBasedDispatcher, get_exception_traceback
+from sglang.srt.runtime_context import get_parallel
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
@@ -395,7 +396,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         self.server_args = server_args
         self.startup_time: Optional[Dict[str, Any]] = None
         self._config_updates: List[Tuple[str, Dict[str, Any]]] = []
-        self.elastic_worker_count = server_args.dp_size
+        self.elastic_worker_count = get_parallel().dp_size
         self.elastic_pending_ep_size = None
         self.elastic_scale_phase = "idle"
         self.elastic_last_error = None
@@ -549,7 +550,6 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
             self.tokenizer_ipc_name = port_args.tokenizer_ipc_name
 
         self.load_snapshot_reader = create_load_snapshot_reader(
-            self.server_args,
             port_args,
             caller="TokenizerManager",
         )
@@ -1581,7 +1581,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         return batch_size > 0 and (
             self.server_args.enable_tokenizer_batch_encode
             or (
-                (not self.server_args.enable_dp_attention)
+                (not get_parallel().enable_dp_attention)
                 and (not self._batch_has_text(batch_size, requests))
             )
         )
