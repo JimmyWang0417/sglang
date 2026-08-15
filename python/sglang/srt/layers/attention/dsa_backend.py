@@ -394,7 +394,7 @@ class DeepseekSparseAttnBackend(
         self.speculative_num_draft_tokens = get_spec().speculative_num_draft_tokens
         self.speculative_step_id = speculative_step_id
         self.use_fused_topk = should_use_dsa_fused_topk(
-            model_runner.server_args, seed_dsa_topk_from_draft_extend
+            seed_dsa_topk_from_draft_extend
         )
         if envs.SGLANG_DSA_FUSE_TOPK.get() and not self.use_fused_topk:
             print_warning_once(

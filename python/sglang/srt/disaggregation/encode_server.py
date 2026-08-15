@@ -3922,6 +3922,9 @@ def _unregister_encoder_url_from_bootstrap(server_args: ServerArgs):
 
 def launch_server(server_args: ServerArgs):
     configure_logger(server_args, prefix=" encode_server")
+    # Publish before the launch path reads configuration; the encoder built
+    # below re-projects the same object.
+    publish(server_args, role="encoder")
     if get_parallel().dp_size > 1:
         _launch_server_dp(server_args)
         return

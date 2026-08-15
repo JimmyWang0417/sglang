@@ -60,7 +60,7 @@ def build_eagle_disagg_draft_input(
     dsa_indices_list = [req.output_dsa_topk_indices for req in batch.reqs]
     if dsa_indices_list and all(t is not None for t in dsa_indices_list):
         dsa_topk_indices = torch.stack(dsa_indices_list, dim=0).to(batch.device)
-        if should_remap_pd_dsa_seed_to_local_slots(server_args):
+        if should_remap_pd_dsa_seed_to_local_slots():
             # PD sends request-relative positions; fused TopK consumes
             # decode-local physical slots. Remap once before the draft loop/graph.
             req_to_token = batch.req_to_token_pool.req_to_token

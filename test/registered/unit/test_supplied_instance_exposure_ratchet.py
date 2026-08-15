@@ -238,7 +238,6 @@ _EXPOSED = {
     ("kv_canary/capacities.py", "cuda_graph_config"),
     ("kv_canary/capacities.py", "speculative_num_draft_tokens"),
     ("kv_canary/token_oracle/install.py", "sampling_backend"),
-    ("layers/attention/dsa/utils.py", "disaggregation_mode"),
     ("layers/cp/base.py", "attn_cp_size"),
     ("layers/cp/base.py", "cp_strategy"),
     ("layers/cp/base.py", "enable_prefill_cp"),

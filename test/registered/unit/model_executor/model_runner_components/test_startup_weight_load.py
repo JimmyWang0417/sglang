@@ -20,6 +20,7 @@ from sglang.srt.configs.model_config import ModelImpl
 from sglang.srt.managers.tp_worker import TpModelWorker
 from sglang.srt.model_executor.cuda_graph_config import Backend, CudaGraphConfig
 from sglang.srt.model_executor.model_runner import ModelRunner
+from sglang.srt.runtime_context import publish, reset_context
 from sglang.srt.model_executor.model_runner_components.startup_weight_load import (
     ModelStorageManifest,
     StartupWeightLoadManager,
@@ -203,10 +204,12 @@ class TestStartupWeightLoadSelector(CustomTestCase):
 
     def test_options_accept_current_server_args_schema(self):
         """Removed server options must not break overlap startup initialization."""
+        server_args = ServerArgs(model_path="dummy", cuda_graph_config=CudaGraphConfig())
+        # The parallel sizes come from the bags, so the config has to be published.
+        publish(server_args, role="test")
+        self.addCleanup(reset_context)
         options = StartupWeightLoadOptions.from_server_args(
-            server_args=ServerArgs(
-                model_path="dummy", cuda_graph_config=CudaGraphConfig()
-            ),
+            server_args=server_args,
             is_draft_worker=False,
         )
 
