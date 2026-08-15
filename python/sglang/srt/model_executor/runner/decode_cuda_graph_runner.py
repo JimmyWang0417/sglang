@@ -447,12 +447,15 @@ class DecodeCudaGraphRunner(BaseCudaGraphRunner):
         elif not forward_mode.is_decode():
             return SharedReadBoundary.UNKNOWN
         boundary = attn_backend.shared_read_boundary(forward_mode)
-        if (
-            boundary is SharedReadBoundary.IN_REPLAY
-            and not self._war_read_done_node_planted
-        ):
-            # Non-capturing runs / no external-event support.
-            return SharedReadBoundary.PRE_REPLAY
+        if boundary is SharedReadBoundary.IN_REPLAY:
+            if isinstance(self.backend, BreakableCudaGraphBackend):
+                # Breakable replay recomputes attention metadata between
+                # segments, after the planted in-graph event node; only a
+                # post-replay record covers those reads.
+                return SharedReadBoundary.POST_REPLAY
+            if not self._war_read_done_node_planted:
+                # Non-capturing runs / no external-event support.
+                return SharedReadBoundary.PRE_REPLAY
         return boundary
 
     def _publish_war_read_done(self, in_graph: bool):
