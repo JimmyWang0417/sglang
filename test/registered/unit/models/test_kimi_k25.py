@@ -591,17 +591,19 @@ class _HFProcessor:
 )
 def test_kimi_processor_workers_clone_the_gpu_wrapper(processor_cls, wrapper_cls):
     server_args = SimpleNamespace(
-        mm_feature_transport="cpu",
         disable_fast_image_processor=False,
         skip_tokenizer_init=False,
-        mm_process_config={},
         mm_io_worker_num=0,
         mm_processor_worker_num=0,
         tokenizer_worker_num=1,
         base_gpu_id=0,
-        allowed_media_domains=[],
         media_url_max_file_size_mb=64,
     )
+    # The multimodal config comes from the bags.
+    override = get_context().override_server_args(
+        mm_feature_transport="cpu", mm_process_config={}, allowed_media_domains=[]
+    )
+    override.install()
     processor = processor_cls(
         hf_config=SimpleNamespace(media_placeholder_token_id=42),
         server_args=server_args,
@@ -619,6 +621,7 @@ def test_kimi_processor_workers_clone_the_gpu_wrapper(processor_cls, wrapper_cls
         processor.mm_processor_executor.shutdown()
         processor.io_executor.shutdown()
         processor.cpu_executor.shutdown()
+        override.restore()
 
 
 def test_kimi_k3_expands_image_placeholders_with_original_dimensions():

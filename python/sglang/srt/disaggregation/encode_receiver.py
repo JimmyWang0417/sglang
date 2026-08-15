@@ -45,6 +45,7 @@ from sglang.srt.utils.network import (
     get_local_ip_auto,
     get_zmq_socket_on_host,
 )
+from sglang.srt.runtime_context import get_disagg, get_exec, get_serving
 
 logger = logging.getLogger(__name__)
 
@@ -1575,7 +1576,7 @@ class MMReceiverBase(ABC):
         # context alive for the process instead of creating a temporary context
         # whose destruction also closes its per-request socket.
         self.scheduler_context = zmq.Context()
-        self.encoder_transfer_backend = server_args.encoder_transfer_backend
+        self.encoder_transfer_backend = get_disagg().encoder_transfer_backend
         # When ``encode_urls`` is shared with an :class:`EncoderBootstrapServer`
         # (tokenizer manager process), it grows / shrinks in place as encoders
         # register or unregister; the receiver always sees the current set.
@@ -1631,8 +1632,8 @@ class MMReceiverBase(ABC):
                 self.embeddings_engine = init_mooncake_transfer_engine(
                     hostname=self.host,
                     ib_device=(
-                        server_args.disaggregation_ib_device
-                        or server_args.mooncake_ib_device
+                        get_disagg().disaggregation_ib_device
+                        or get_exec().moe.mooncake_ib_device
                     ),
                 )
             self.embeddings_buffer = dict()
@@ -1678,7 +1679,7 @@ class MMReceiverBase(ABC):
             extra_kwargs["tokenizer_backend"] = server_args.tokenizer_backend
 
         _processor = get_processor(
-            server_args.tokenizer_path,
+            get_serving().tokenizer_path,
             tokenizer_mode=server_args.tokenizer_mode,
             trust_remote_code=server_args.trust_remote_code,
             revision=server_args.revision,
