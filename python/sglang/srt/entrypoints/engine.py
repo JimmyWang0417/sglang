@@ -278,8 +278,8 @@ class Engine(EngineScoreMixin, EngineBase):
         self.template_manager = template_manager
         self._scheduler_init_result = scheduler_init_result
         # Engine-spawned weight cache daemons owned by *this* instance (empty
-        # unless --weight-cache-mode daemon). Kept per-instance so two Engines
-        # in one process each reap only their own daemons in shutdown().
+        # unless --weight-cache-mode daemon), so shutdown() reaps exactly what
+        # this Engine spawned.
         self._weight_cache_daemon_procs = weight_cache_daemon_procs
         if tokenizer_manager is not None:
             tokenizer_manager._subprocess_watchdog = subprocess_watchdog
@@ -1110,8 +1110,8 @@ class Engine(EngineScoreMixin, EngineBase):
             resolve_auto_parsers(server_args)
 
         # Launch daemons (daemon mode only). Handles are threaded back to the
-        # owning Engine instance (not a class attr) so two Engines in one process
-        # don't clobber each other's daemon list.
+        # owning Engine instance rather than a class attribute, so daemon
+        # ownership follows the instance lifecycle.
         weight_cache_daemon_procs: List = []
         if server_args.weight_cache_mode == "daemon":
             weight_cache_daemon_procs = cls._launch_weight_cache_daemons(server_args)
