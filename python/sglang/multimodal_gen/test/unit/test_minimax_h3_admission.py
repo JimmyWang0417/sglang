@@ -250,6 +250,7 @@ def _quality_server_args():
         is_dit_layerwise_offload_selected=False,
         performance_mode="speed",
         quantization=None,
+        text_encoder_quantization=None,
         regional_compile=False,
         ring_degree=1,
         sp_degree=4,
@@ -349,7 +350,9 @@ def test_validate_server_args_requires_packed_varlen_backend():
         _server_arg_value=MiniMaxH3PipelineConfig._server_arg_value,
     )
     server_args = SimpleNamespace(
-        component_attention_backends={}, attention_backend="sage_attn"
+        component_attention_backends={},
+        attention_backend="sage_attn",
+        text_encoder_quantization=None,
     )
     with patch(
         "sglang.multimodal_gen.configs.pipeline_configs.minimax_h3.get_attn_backend"

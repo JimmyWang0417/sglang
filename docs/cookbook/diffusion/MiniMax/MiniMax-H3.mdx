@@ -738,6 +738,34 @@ The picker exposes this option only on the B200 and B300 topologies used for
 real H3 validation runs.
 </Warning>
 
+The Qwen3-VL text encoder has a separate FP8 control; it does not change the
+DiT precision. Quantize its language linear layers from the bundled BF16
+weights at startup with:
+
+```bash Command
+sglang serve \
+  --model-path MiniMaxAI/MiniMax-H3 \
+  --model-variant fl2va \
+  --num-gpus 4 \
+  --tp-size 2 \
+  --ulysses-degree 2 \
+  --performance-mode speed \
+  --text-encoder-quantization fp8 \
+  --port 30010
+```
+
+Alternatively, replace only that component with the serialized official FP8
+checkpoint by using
+`--text-encoder-path Qwen/Qwen3-VL-32B-Instruct-FP8`; its checkpoint
+`quantization_config` is detected automatically. In both cases, the embedding,
+normalization, and vision modules remain BF16. This is an approximate
+serve-time choice and is incompatible with the strict `quality="high"`
+deployment contract.
+
+Online FP8 materializes the bundled BF16 encoder before converting it, so it
+reduces steady-state encoder residency but not the BF16 startup peak. Prefer
+the serialized checkpoint when startup memory is the limiting resource.
+
 </Tab>
 
 </Tabs>

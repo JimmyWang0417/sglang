@@ -110,6 +110,13 @@ class MiniMaxH3PipelineConfig(PipelineConfig):
             else type(current_platform).__name__
         )
         model_variant = str(server_args.model_variant or "fl2va").lower()
+        text_encoder_quantization = server_args.text_encoder_quantization
+        if text_encoder_quantization is None:
+            resolved_quant_config = self.text_encoder_configs[0].quant_config
+            if resolved_quant_config is not None:
+                text_encoder_quantization = resolved_quant_config.get_name()
+        if text_encoder_quantization is not None:
+            text_encoder_quantization = text_encoder_quantization.strip().lower()
         actual = {
             "attention_backend": attention_backend,
             "backend": self._server_arg_value(server_args.backend),
@@ -123,6 +130,7 @@ class MiniMaxH3PipelineConfig(PipelineConfig):
             "num_gpus": server_args.num_gpus,
             "performance_mode": server_args.performance_mode,
             "quantization": server_args.quantization,
+            "text_encoder_quantization": text_encoder_quantization,
             "regional_compile": server_args.regional_compile,
             "ring_degree": server_args.ring_degree,
             "sp_degree": server_args.sp_degree,
@@ -144,6 +152,7 @@ class MiniMaxH3PipelineConfig(PipelineConfig):
             "num_gpus": 4,
             "performance_mode": "speed",
             "quantization": None,
+            "text_encoder_quantization": None,
             "regional_compile": False,
             "ring_degree": 1,
             "sp_degree": 4,
@@ -178,6 +187,14 @@ class MiniMaxH3PipelineConfig(PipelineConfig):
     def validate_server_args(self, server_args) -> None:
         # Reject known-inexact VAE modes before any large component download.
         self.vae_config.resolved_parallel_decode_mode()
+        text_encoder_quantization = server_args.text_encoder_quantization
+        if text_encoder_quantization is not None:
+            text_encoder_quantization = text_encoder_quantization.strip().lower()
+        if text_encoder_quantization not in {None, "fp8"}:
+            raise ValueError(
+                "MiniMax H3 text-encoder quantization supports only 'fp8'; "
+                f"got {server_args.text_encoder_quantization!r}"
+            )
         component_backends = server_args.component_attention_backends or {}
         attention_backend = component_backends.get(
             "transformer", self._server_arg_value(server_args.attention_backend)

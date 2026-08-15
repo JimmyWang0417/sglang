@@ -155,6 +155,9 @@ class TextEncoder(nn.Module, ABC, LayerwiseOffloadableModuleMixin):
     # Qwen2_5_VLCausalLMOutputWithPast). Off by default so a new encoder is
     # replicated rather than silently broken; flip it once dp is verified there.
     supports_dp_encode = False
+    # Native text-encoder quantization is opt-in because a model must construct
+    # quantized linears and load the checkpoint's auxiliary scale parameters.
+    supported_quantization_methods: frozenset[str] = frozenset()
     layerwise_offload_dit_group_enabled = False
     layer_names = [
         "layers",

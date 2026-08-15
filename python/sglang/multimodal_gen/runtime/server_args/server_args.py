@@ -313,6 +313,11 @@ class ServerArgs(DisaggServerArgsMixin):
     quantization: str | None = None
     # Layer name patterns to skip during online quantization
     quantization_ignored_layers: list[str] | None = None
+    # Explicit quantization method for native text encoders. This is separate
+    # from transformer quantization so existing deployments remain unchanged.
+    text_encoder_quantization: str | None = None
+    # Layer name patterns to skip during online text-encoder quantization.
+    text_encoder_quantization_ignored_layers: list[str] | None = None
 
     # can restrict layers to adapt, e.g. ["q_proj"]
     # Will adapt only q, k, v, o by default.
@@ -2126,6 +2131,28 @@ class ServerArgs(DisaggServerArgsMixin):
                 "Layer name patterns to keep unquantized during online quantization "
                 "(fp8/mxfp4). Each pattern is matched against the layer prefix. "
                 "Example: --quantization-ignored-layers img_mod txt_mod to_out"
+            ),
+        )
+        parser.add_argument(
+            "--text-encoder-quantization",
+            type=str,
+            default=ServerArgs.text_encoder_quantization,
+            help=(
+                "Quantization method for native text encoders. If omitted, the "
+                "method is auto-detected from the text-encoder checkpoint config. "
+                "Online (post-load) quantization is currently supported for 'fp8' "
+                "on explicitly compatible encoders such as MiniMax H3 Qwen3-VL."
+            ),
+        )
+        parser.add_argument(
+            "--text-encoder-quantization-ignored-layers",
+            type=str,
+            nargs="+",
+            default=ServerArgs.text_encoder_quantization_ignored_layers,
+            help=(
+                "Layer name patterns to keep unquantized during online text-encoder "
+                "FP8 quantization. This option does not alter a pre-quantized "
+                "checkpoint's serialized layout."
             ),
         )
 

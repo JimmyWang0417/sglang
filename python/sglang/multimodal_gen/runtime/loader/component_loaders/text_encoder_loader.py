@@ -24,6 +24,14 @@ from sglang.multimodal_gen.runtime.distributed.group_coordinator import GroupCoo
 from sglang.multimodal_gen.runtime.distributed.parallel_state import (
     patch_tensor_parallel_group,
 )
+from sglang.multimodal_gen.runtime.layers.linear import (
+    LinearBase,
+    UnquantizedLinearMethod,
+)
+from sglang.multimodal_gen.runtime.layers.quantization import (
+    QuantizationConfig,
+    get_quantization_config,
+)
 from sglang.multimodal_gen.runtime.loader.component_loaders.component_loader import (
     ComponentLoader,
 )
@@ -56,10 +64,104 @@ from sglang.multimodal_gen.runtime.utils.hf_diffusers_utils import (
 )
 from sglang.multimodal_gen.runtime.utils.logging_utils import init_logger
 from sglang.multimodal_gen.runtime.utils.precision import precision_to_dtype
+from sglang.multimodal_gen.runtime.utils.quantization_utils import get_quant_config
 from sglang.multimodal_gen.utils import PRECISION_TO_TYPE
 from sglang.srt.environ import envs
 
 logger = init_logger(__name__)
+
+
+def _resolve_text_encoder_quant_config(
+    component_config: dict,
+    component_model_path: str,
+    server_args: ServerArgs,
+) -> QuantizationConfig | None:
+    checkpoint_quant_config = get_quant_config(
+        component_config,
+        component_model_path,
+    )
+    requested_method = server_args.text_encoder_quantization
+    if requested_method is not None:
+        requested_method = requested_method.strip().lower()
+    ignored_layers = server_args.text_encoder_quantization_ignored_layers
+
+    if checkpoint_quant_config is not None:
+        checkpoint_method = checkpoint_quant_config.get_name()
+        if requested_method is not None and requested_method != checkpoint_method:
+            raise ValueError(
+                "Text-encoder checkpoint quantization does not match "
+                f"--text-encoder-quantization: checkpoint={checkpoint_method!r}, "
+                f"requested={requested_method!r}"
+            )
+        if ignored_layers:
+            raise ValueError(
+                "--text-encoder-quantization-ignored-layers is only valid for "
+                "online quantization from a BF16/FP16 text-encoder checkpoint"
+            )
+        return checkpoint_quant_config
+
+    if requested_method is None:
+        if ignored_layers:
+            raise ValueError(
+                "--text-encoder-quantization-ignored-layers requires "
+                "--text-encoder-quantization"
+            )
+        return None
+
+    if requested_method != "fp8":
+        raise ValueError(
+            "Online text-encoder quantization currently supports only 'fp8'; "
+            f"got {requested_method!r}"
+        )
+    quant_config_cls = get_quantization_config(requested_method)
+    return quant_config_cls(ignored_layers=ignored_layers)
+
+
+def _configure_text_encoder_quantization(
+    model_config: EncoderConfig,
+    model_cls: type[nn.Module],
+    component_config: dict,
+    component_model_path: str,
+    server_args: ServerArgs,
+) -> None:
+    quant_config = _resolve_text_encoder_quant_config(
+        component_config,
+        component_model_path,
+        server_args,
+    )
+    model_config.quant_config = quant_config
+    if quant_config is None:
+        return
+    if not issubclass(model_cls, TextEncoder):
+        raise ValueError(
+            "Text-encoder quantization requires an in-tree native TextEncoder; "
+            f"got {model_cls.__name__}"
+        )
+    quant_method = quant_config.get_name()
+    if quant_method not in model_cls.supported_quantization_methods:
+        raise ValueError(
+            f"{model_cls.__name__} does not support text-encoder quantization "
+            f"method {quant_method!r}; supported methods: "
+            f"{sorted(model_cls.supported_quantization_methods)}"
+        )
+
+
+def _process_quantized_text_encoder_weights(model: nn.Module) -> int:
+    processed_layers = 0
+    for module in model.modules():
+        if not isinstance(module, LinearBase):
+            continue
+        quant_method = module.quant_method
+        if quant_method is None or isinstance(quant_method, UnquantizedLinearMethod):
+            continue
+        quant_method.process_weights_after_loading(module)
+        processed_layers += 1
+    if processed_layers == 0:
+        raise ValueError(
+            "Text-encoder quantization was requested, but the model did not "
+            "construct any quantized linear layers"
+        )
+    return processed_layers
 
 
 class TextEncoderLoader(ComponentLoader):
@@ -360,6 +462,13 @@ class TextEncoderLoader(ComponentLoader):
         model_cls, _ = ModelRegistry.resolve_model_cls(
             getattr(encoder_config, "architectures", [])
         )
+        _configure_text_encoder_quantization(
+            encoder_config,
+            model_cls,
+            model_config,
+            component_model_path,
+            server_args,
+        )
         # real dims are populated now; resolve fold vs replicate
         finalize_encoder_folding(
             encoder_config,
@@ -419,6 +528,30 @@ class TextEncoderLoader(ComponentLoader):
         # Determine CPU offload behavior and target device
 
         local_torch_device = get_local_torch_device()
+        quant_config = model_config.quant_config
+        param_dtype = PRECISION_TO_TYPE[dtype]
+        if quant_config is not None:
+            if param_dtype not in quant_config.get_supported_act_dtypes():
+                raise ValueError(
+                    f"Text-encoder quantization method {quant_config.get_name()!r} "
+                    f"does not support activation dtype {param_dtype}"
+                )
+            if current_platform.is_mps():
+                raise ValueError(
+                    "Text-encoder FP8 quantization is not supported on MPS"
+                )
+            if current_platform.is_cuda():
+                capability = current_platform.get_device_capability()
+                if (
+                    capability is not None
+                    and capability.to_int() < quant_config.get_min_capability()
+                ):
+                    raise ValueError(
+                        f"Text-encoder quantization method {quant_config.get_name()!r} "
+                        "requires CUDA compute capability "
+                        f">= {quant_config.get_min_capability() / 10:.1f}; got "
+                        f"{capability.to_int() / 10:.1f}"
+                    )
 
         if not current_platform.is_cpu():
             fsdp_cpu_offload = self.should_offload(
@@ -483,6 +616,15 @@ class TextEncoderLoader(ComponentLoader):
                     to_cpu=should_offload,
                 )
             )
+
+            if quant_config is not None:
+                model = model.to(local_torch_device)
+                processed_layers = _process_quantized_text_encoder_weights(model)
+                logger.info(
+                    "Processed %d %s text-encoder linear layers",
+                    processed_layers,
+                    quant_config.get_name(),
+                )
 
             if should_offload:
                 # Disable FSDP for MPS as it's not compatible

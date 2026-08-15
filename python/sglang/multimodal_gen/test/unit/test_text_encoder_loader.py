@@ -4,9 +4,13 @@ from unittest import mock
 
 import transformers
 
+from sglang.multimodal_gen.runtime.layers.quantization.fp8 import Fp8Config
 from sglang.multimodal_gen.runtime.loader.component_loaders.text_encoder_loader import (
     TextEncoderLoader,
+    _configure_text_encoder_quantization,
+    _resolve_text_encoder_quant_config,
 )
+from sglang.multimodal_gen.runtime.models.encoders.base import TextEncoder
 from sglang.multimodal_gen.runtime.models.encoders.minimax_h3_qwen3vl import (
     MiniMaxH3Qwen3VLEncoder,
 )
@@ -100,6 +104,92 @@ class TestMiniMaxH3CheckpointFilter(unittest.TestCase):
             {name: should_load(name) for name in expected},
             expected,
         )
+
+
+class TestTextEncoderQuantization(unittest.TestCase):
+    @staticmethod
+    def _server_args(method=None, ignored_layers=None):
+        return SimpleNamespace(
+            text_encoder_quantization=method,
+            text_encoder_quantization_ignored_layers=ignored_layers,
+        )
+
+    @mock.patch(
+        "sglang.multimodal_gen.runtime.loader.component_loaders."
+        "text_encoder_loader.get_quant_config",
+        return_value=None,
+    )
+    def test_online_fp8_uses_explicit_ignored_layers(self, _get_quant_config):
+        ignored_layers = ["layers.0.self_attn"]
+        quant_config = _resolve_text_encoder_quant_config(
+            {},
+            "/model/text_encoder",
+            self._server_args("FP8", ignored_layers),
+        )
+        self.assertIsInstance(quant_config, Fp8Config)
+        self.assertFalse(quant_config.is_checkpoint_fp8_serialized)
+        self.assertEqual(quant_config.ignored_layers, ignored_layers)
+
+    @mock.patch(
+        "sglang.multimodal_gen.runtime.loader.component_loaders."
+        "text_encoder_loader.get_quant_config"
+    )
+    def test_serialized_checkpoint_config_takes_precedence(self, get_quant_config):
+        serialized = Fp8Config(
+            is_checkpoint_fp8_serialized=True,
+            activation_scheme="dynamic",
+            weight_block_size=[128, 128],
+        )
+        get_quant_config.return_value = serialized
+        resolved = _resolve_text_encoder_quant_config(
+            {},
+            "/model/text_encoder",
+            self._server_args("fp8"),
+        )
+        self.assertIs(resolved, serialized)
+
+    @mock.patch(
+        "sglang.multimodal_gen.runtime.loader.component_loaders."
+        "text_encoder_loader.get_quant_config"
+    )
+    def test_serialized_checkpoint_rejects_online_ignored_layers(
+        self, get_quant_config
+    ):
+        get_quant_config.return_value = Fp8Config(
+            is_checkpoint_fp8_serialized=True,
+            activation_scheme="dynamic",
+        )
+        with self.assertRaisesRegex(ValueError, "only valid for online"):
+            _resolve_text_encoder_quant_config(
+                {},
+                "/model/text_encoder",
+                self._server_args("fp8", ["layers.0"]),
+            )
+
+    @mock.patch(
+        "sglang.multimodal_gen.runtime.loader.component_loaders."
+        "text_encoder_loader.get_quant_config",
+        return_value=None,
+    )
+    def test_encoder_class_must_opt_in(self, _get_quant_config):
+        model_config = SimpleNamespace(quant_config=None)
+        with self.assertRaisesRegex(ValueError, "does not support"):
+            _configure_text_encoder_quantization(
+                model_config,
+                TextEncoder,
+                {},
+                "/model/text_encoder",
+                self._server_args("fp8"),
+            )
+
+        _configure_text_encoder_quantization(
+            model_config,
+            MiniMaxH3Qwen3VLEncoder,
+            {},
+            "/model/text_encoder",
+            self._server_args("fp8"),
+        )
+        self.assertIsInstance(model_config.quant_config, Fp8Config)
 
 
 if __name__ == "__main__":
