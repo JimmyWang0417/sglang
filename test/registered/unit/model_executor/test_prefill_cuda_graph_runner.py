@@ -19,6 +19,7 @@ from sglang.srt.model_executor.runner.prefill_cuda_graph_runner import (
 from sglang.srt.model_executor.runner.shape_key import ShapeKey
 from sglang.test.ci.ci_register import register_cpu_ci
 from sglang.test.test_utils import CustomTestCase
+from sglang.srt.runtime_context import get_context
 
 register_cpu_ci(est_time=2, suite="base-a-test-cpu")
 
@@ -111,13 +112,17 @@ class TestPrefillCudaGraphRunnerChunkedPrefix(CustomTestCase):
 
     def test_eagle_target_tc_piecewise_skips_last_mode_capture(self):
         eager_runner = object()
+        # The server-side hidden-state ceiling is a bag leaf.
+        override = get_context().override_server_args(
+            enable_return_hidden_states=True,
+            return_hidden_states_mode="last",
+        )
+        override.install()
+        self.addCleanup(override.restore)
         model_runner = SimpleNamespace(
             is_draft_worker=False,
             spec_algorithm=SimpleNamespace(is_eagle=lambda: True),
-            server_args=SimpleNamespace(
-                enable_return_hidden_states=True,
-                return_hidden_states_mode="last",
-            ),
+            server_args=SimpleNamespace(),
         )
 
         with patch.object(
