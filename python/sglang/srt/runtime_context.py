@@ -1180,12 +1180,33 @@ _RECORDED_NS_READS: set[tuple[str | None, str]] = set()
 _RECORD_DUMP_REGISTERED = False
 
 
+_IS_COMPILING_PROBE = None
+
+
+def _bind_is_compiling_probe() -> None:
+    """Bind torch's tracing probe, outside any traced frame.
+
+    Called at import and again at publish, so the lookup has happened before
+    the first bag read: reading ``sys.modules`` inside a traced frame makes
+    dynamo guard on the whole module table and fails the trace. The lookup
+    never imports torch, so this module stays import-light.
+    """
+    global _IS_COMPILING_PROBE
+    if _IS_COMPILING_PROBE is None:
+        torch = sys.modules.get("torch")
+        if torch is not None:
+            _IS_COMPILING_PROBE = torch.compiler.is_compiling
+
+
 def _is_compiling() -> bool:
     # Recording has Python side effects (set mutation, file I/O, atexit) that
     # must never run under tracing; torch.compiler.is_compiling() is dynamo's
-    # sanctioned probe. The lazy lookup keeps this module import-light.
-    torch = sys.modules.get("torch")
-    return torch is not None and torch.compiler.is_compiling()
+    # sanctioned probe.
+    probe = _IS_COMPILING_PROBE
+    return probe is not None and probe()
+
+
+_bind_is_compiling_probe()
 
 
 def _ensure_record_dump_registered() -> None:
@@ -1273,6 +1294,7 @@ def publish(server_args, *, role: str, hf_config: Any = None) -> RuntimeContext:
             f"publish role {role!r} has no ROLE_NAMESPACE_SETS entry; declare "
             "its namespace set (None for the full tree)."
         )
+    _bind_is_compiling_probe()
     _CONTEXT.set_server_args(server_args)
     _CONTEXT._publish_role = role
     if _ROLE_NS_MODE == "record":
