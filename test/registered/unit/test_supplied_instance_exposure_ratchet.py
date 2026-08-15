@@ -143,7 +143,6 @@ _EXPOSED = {
     ("configs/model_config.py", "quantization"),
     ("configs/model_config.py", "speculative_algorithm"),
     ("configs/model_config.py", "speculative_draft_model_quantization"),
-    ("constrained/base_grammar_backend.py", "grammar_backend"),
     ("constrained/base_grammar_backend.py", "reasoning_parser"),
     ("disaggregation/common/conn.py", "disaggregation_bootstrap_port"),
     ("disaggregation/common/conn.py", "pp_size"),
@@ -237,7 +236,6 @@ _EXPOSED = {
     ("kv_canary/capacities.py", "chunked_prefill_size"),
     ("kv_canary/capacities.py", "cuda_graph_config"),
     ("kv_canary/capacities.py", "speculative_num_draft_tokens"),
-    ("kv_canary/token_oracle/install.py", "sampling_backend"),
     ("layers/cp/base.py", "attn_cp_size"),
     ("layers/cp/base.py", "cp_strategy"),
     ("layers/cp/base.py", "enable_prefill_cp"),
@@ -282,10 +280,6 @@ _EXPOSED = {
     ("managers/scheduler.py", "pp_size"),
     ("managers/scheduler.py", "soft_watchdog_timeout"),
     ("managers/scheduler.py", "speculative_algorithm"),
-    (
-        "managers/scheduler_components/new_token_ratio_tracker.py",
-        "schedule_conservativeness",
-    ),
     ("managers/tokenizer_manager.py", "model_path"),
     ("managers/tokenizer_manager.py", "served_model_name"),
     ("managers/tp_worker.py", "disable_overlap_schedule"),
@@ -423,7 +417,6 @@ _EXPOSED_CUDA_ONLY: frozenset = frozenset()
 _OVERRIDDEN_AND_READ = {
     ("configs/model_config.py", "dtype"),
     ("configs/model_config.py", "model_path"),
-    ("constrained/base_grammar_backend.py", "grammar_backend"),
     ("disaggregation/decode_kvcache_offload_manager.py", "hicache_storage_backend"),
     (
         "disaggregation/decode_kvcache_offload_manager.py",
